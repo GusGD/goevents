@@ -1,6 +1,7 @@
 package events
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +13,10 @@ import (
 type TestEvent struct {
 	Name    string
 	Payload interface{}
+}
+
+type MockHandler struct {
+	mock.Mock
 }
 
 func (e *TestEvent) GetName() string {
@@ -30,7 +35,11 @@ type TestEventHandler struct {
 	ID int
 }
 
-func (h *TestEventHandler) Handle(event EventInterface) {}
+func TestSuite(t *testing.T) {
+	suite.Run(t, new(EventDispatcherTestSuite))
+}
+
+func (h *TestEventHandler) Handle(event EventInterface, wg *sync.WaitGroup) {}
 
 type EventDispatcherTestSuite struct {
 	suite.Suite
@@ -116,21 +125,26 @@ func (suite *EventDispatcherTestSuite) TestEventDispatcher_Clear() {
 	suite.Equal(0, len(suite.eventDispatcher.handlers))
 }
 
-type MockHandler struct {
-	mock.Mock
-}
-
-func (m *MockHandler) Handle(event EventInterface) {
+func (m *MockHandler) Handle(event EventInterface, wg *sync.WaitGroup) {
 	m.Called(event)
+	wg.Done()
 }
 
 func (suite *EventDispatcherTestSuite) TestEventDispatcher_Dispatch() {
 	eh := &MockHandler{}
 	eh.On("Handle", &suite.event)
+
+	ehTwo := &MockHandler{}
+	ehTwo.On("Handle", &suite.event)
+
 	suite.eventDispatcher.Register(suite.event.GetName(), eh)
+	suite.eventDispatcher.Register(suite.event.GetName(), ehTwo)
+
 	suite.eventDispatcher.Dispatch(&suite.event)
 	eh.AssertExpectations(suite.T())
+	ehTwo.AssertExpectations(suite.T())
 	eh.AssertNumberOfCalls(suite.T(), "Handle", 1)
+	ehTwo.AssertNumberOfCalls(suite.T(), "Handle", 1)
 }
 
 func (suite *EventDispatcherTestSuite) TestEventDispatcher_Remove() {
@@ -156,8 +170,4 @@ func (suite *EventDispatcherTestSuite) TestEventDispatcher_Remove() {
 	suite.eventDispatcher.Remove(suite.event.GetName(), &suite.handler3)
 	suite.Equal(0, len(suite.eventDispatcher.handlers[suite.event.GetName()]))
 
-}
-
-func TestSuite(t *testing.T) {
-	suite.Run(t, new(EventDispatcherTestSuite))
 }
